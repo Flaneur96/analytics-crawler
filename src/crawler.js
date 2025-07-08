@@ -150,6 +150,15 @@ async function checkScripts(url) {
           hasConsentUpdate: false,
           waitForUpdate: null
         },
+        otherScripts: {
+          clarity: false,
+          hotjar: false,
+          intercom: false,
+          cookiebot: false,
+          onetrust: false,
+          crazyegg: false,
+          fullstory: false
+        },
         debug: {}
       };
       
@@ -178,6 +187,42 @@ async function checkScripts(url) {
           if (script.src.includes('gtag/js')) {
             const ga4Match = script.src.match(/[?&]id=(G-[A-Z0-9]+)/);
             if (ga4Match) results.ga4 = ga4Match[1];
+          }
+          
+          // SPRAWDŹ INNE SKRYPTY
+          // Microsoft Clarity
+          if (script.src.includes('clarity.ms')) {
+            results.otherScripts.clarity = true;
+          }
+          
+          // Hotjar
+          if (script.src.includes('hotjar.com')) {
+            results.otherScripts.hotjar = true;
+          }
+          
+          // Intercom
+          if (script.src.includes('intercom.io')) {
+            results.otherScripts.intercom = true;
+          }
+          
+          // Cookiebot
+          if (script.src.includes('cookiebot.com')) {
+            results.otherScripts.cookiebot = true;
+          }
+          
+          // OneTrust
+          if (script.src.includes('onetrust.com')) {
+            results.otherScripts.onetrust = true;
+          }
+          
+          // CrazyEgg
+          if (script.src.includes('crazyegg.com')) {
+            results.otherScripts.crazyegg = true;
+          }
+          
+          // FullStory
+          if (script.src.includes('fullstory.com')) {
+            results.otherScripts.fullstory = true;
           }
         }
         
