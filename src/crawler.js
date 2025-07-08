@@ -103,6 +103,7 @@ async function checkScripts(url) {
         'button[id*="accept-all"]',
         'button[class*="accept-all"]',
         'button:has-text("Zaakceptuj wszystkie")',
+        'button:has-text("Zezwól na wszystkie")',
         'button:has-text("Accept all")',
         'button:has-text("Akceptuję")'
       ];
@@ -139,6 +140,16 @@ async function checkScripts(url) {
         scripts_found: [],
         dataLayer: false,
         cookieConsent: null,
+        consentMode: {
+          implemented: false,
+          defaultConsent: null,
+          updateConsent: null,
+          consentCodes: [],
+          errors: [],
+          hasConsentDefault: false,
+          hasConsentUpdate: false,
+          waitForUpdate: null
+        },
         debug: {}
       };
       
@@ -188,16 +199,88 @@ async function checkScripts(url) {
           if (script.innerHTML.includes('dataLayer')) {
             results.dataLayer = true;
           }
+          
+          // SPRAWDZANIE CONSENT MODE
+          if (script.innerHTML.includes("gtag('consent', 'default'")) {
+            results.consentMode.hasConsentDefault = true;
+            results.consentMode.implemented = true;
+            
+            // Sprawdź ustawienia default consent
+            const defaultMatch = script.innerHTML.match(/gtag\s*\(\s*['"]consent['"]\s*,\s*['"]default['"]\s*,\s*({[^}]+})\s*\)/);
+            if (defaultMatch) {
+              try {
+                results.consentMode.defaultConsent = defaultMatch[1];
+              } catch (e) {}
+            }
+            
+            // Sprawdź wait_for_update
+            if (script.innerHTML.includes('wait_for_update')) {
+              const waitMatch = script.innerHTML.match(/wait_for_update['"]\s*:\s*(\d+)/);
+              if (waitMatch) {
+                results.consentMode.waitForUpdate = parseInt(waitMatch[1]);
+              }
+            }
+          }
+          
+          if (script.innerHTML.includes("gtag('consent', 'update'")) {
+            results.consentMode.hasConsentUpdate = true;
+          }
+          
+          // Szukaj kodów zgód (G100, G111, etc)
+          const consentCodeMatches = script.innerHTML.match(/[Gg][0-9]{3}/g);
+          if (consentCodeMatches) {
+            results.consentMode.consentCodes.push(...consentCodeMatches);
+          }
         }
       });
       
       // Facebook Pixel
       results.fbPixel = typeof window.fbq === 'function';
       
-      // Sprawdź też window.dataLayer
+      // Sprawdź dataLayer
       if (typeof window.dataLayer !== 'undefined') {
         results.dataLayer = true;
         results.debug.dataLayerLength = window.dataLayer.length;
+        
+        // Sprawdź consent events w dataLayer
+        window.dataLayer.forEach(item => {
+          if (item && typeof item === 'object') {
+            // Sprawdź różne formaty consent
+            if (item[0] === 'consent' || 
+                (item.event && item.event.includes('consent')) ||
+                (item[0] === 'gtag' && item[1] === 'consent')) {
+              results.consentMode.implemented = true;
+            }
+            
+            // Szukaj kodów zgód
+            const itemStr = JSON.stringify(item);
+            const codes = itemStr.match(/[Gg][0-9]{3}/g);
+            if (codes) {
+              results.consentMode.consentCodes.push(...codes);
+            }
+          }
+        });
+      }
+      
+      // Usuń duplikaty kodów zgód
+      results.consentMode.consentCodes = [...new Set(results.consentMode.consentCodes)];
+      
+      // SPRAWDŹ BŁĘDY CONSENT MODE
+      if (results.gtm || results.ga4) {
+        // Jeśli są skrypty Google ale brak consent mode
+        if (!results.consentMode.hasConsentDefault) {
+          results.consentMode.errors.push('Brak gtag consent default');
+        }
+        
+        // Sprawdź czy jest CMP ale brak consent update
+        if (results.cookieConsent && !results.consentMode.hasConsentUpdate) {
+          results.consentMode.errors.push('Jest CMP ale brak gtag consent update');
+        }
+        
+        // Sprawdź wait_for_update
+        if (results.consentMode.hasConsentDefault && !results.consentMode.waitForUpdate) {
+          results.consentMode.errors.push('Brak wait_for_update w consent default');
+        }
       }
       
       return results;
@@ -205,6 +288,9 @@ async function checkScripts(url) {
     
     console.log('✅ Sprawdzanie zakończone');
     console.log(`📊 Znaleziono: GTM=${scripts.gtm}, GA4=${scripts.ga4}, FB=${scripts.fbPixel}`);
+    console.log(`🔐 Consent Mode: ${scripts.consentMode.implemented ? 'TAK' : 'NIE'}`);
+    console.log(`🏷️ Kody zgód: ${scripts.consentMode.consentCodes.join(', ') || 'BRAK'}`);
+    
     await browser.close();
     
     return {
