@@ -1,14 +1,44 @@
 const { chromium } = require('playwright');
 
-// Funkcja sprawdzająca skrypty na stronie
 async function checkScripts(url) {
   console.log(`🔍 Rozpoczynam sprawdzanie: ${url}`);
   
   const browser = await chromium.launch({ 
-    headless: true // działaj w tle
+    headless: true 
   });
   
   const page = await browser.newPage();
+  
+  // Zbieraj eventy GA4 i FB
+  const capturedEvents = [];
+  
+  // Nasłuchuj requesty do GA4
+  page.on('request', request => {
+    const requestUrl = request.url();
+    
+    // GA4 events
+    if (requestUrl.includes('google-analytics.com/g/collect') || 
+        requestUrl.includes('analytics.google.com/g/collect')) {
+      const urlParams = new URL(requestUrl).searchParams;
+      capturedEvents.push({
+        type: 'GA4',
+        eventName: urlParams.get('en') || urlParams.get('event'),
+        url: requestUrl,
+        timestamp: new Date()
+      });
+    }
+    
+    // Facebook events
+    if (requestUrl.includes('facebook.com/tr')) {
+      const urlParams = new URL(requestUrl).searchParams;
+      capturedEvents.push({
+        type: 'Facebook',
+        eventName: urlParams.get('ev'),
+        url: requestUrl,
+        timestamp: new Date()
+      });
+    }
+  });
   
   try {
     // Wejdź na stronę
@@ -17,16 +47,17 @@ async function checkScripts(url) {
       timeout: 30000 
     });
     
-    // Poczekaj chwilę na załadowanie skryptów
-    await page.waitForTimeout(3000);
+    // Poczekaj chwilę na eventy
+    await page.waitForTimeout(5000);
     
-    // Sprawdź jakie skrypty są na stronie
+    // Sprawdź skrypty (jak wcześniej)
     const scripts = await page.evaluate(() => {
       const results = {
         gtm: null,
         ga4: null,
         fbPixel: false,
-        scripts_found: []
+        scripts_found: [],
+        dataLayer: false
       };
       
       // Znajdź wszystkie skrypty
@@ -34,25 +65,27 @@ async function checkScripts(url) {
         if (script.src) {
           results.scripts_found.push(script.src);
           
-          // Sprawdź GTM
+          // GTM
           if (script.src.includes('googletagmanager.com')) {
             const gtmMatch = script.src.match(/GTM-[A-Z0-9]+/);
             if (gtmMatch) results.gtm = gtmMatch[0];
           }
           
-          // Sprawdź GA4
+          // GA4
           if (script.src.includes('gtag/js')) {
             const ga4Match = script.src.match(/G-[A-Z0-9]+/);
             if (ga4Match) results.ga4 = ga4Match[0];
           }
         }
+        
+        // Sprawdź inline scripts
+        if (script.innerHTML.includes('gtag(') || script.innerHTML.includes('dataLayer')) {
+          results.dataLayer = true;
+        }
       });
       
-      // Sprawdź Facebook Pixel
+      // Facebook Pixel
       results.fbPixel = typeof window.fbq === 'function';
-      
-      // Sprawdź dataLayer
-      results.dataLayer = typeof window.dataLayer !== 'undefined';
       
       return results;
     });
@@ -63,7 +96,8 @@ async function checkScripts(url) {
     return {
       url,
       success: true,
-      scripts
+      scripts,
+      events: capturedEvents
     };
     
   } catch (error) {
