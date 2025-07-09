@@ -157,7 +157,21 @@ async function checkScripts(url) {
           cookiebot: false,
           onetrust: false,
           crazyegg: false,
-          fullstory: false
+          fullstory: false,
+          tiktok: false,
+          linkedin: false,
+          snitcher: false,
+          leadfeeder: false,
+          getresponse: false,
+          youtube: false,
+          vimeo: false,
+          fastcall: false
+        },
+        metrics: {
+          totalScripts: 0,
+          marketingTools: [],
+          videoAPIs: [],
+          performanceWarning: false
         },
         debug: {}
       };
@@ -173,7 +187,10 @@ async function checkScripts(url) {
       }
       
       // Znajdź wszystkie skrypty
-      document.querySelectorAll('script').forEach(script => {
+      const allScripts = document.querySelectorAll('script');
+      results.metrics.totalScripts = allScripts.length;
+      
+      allScripts.forEach(script => {
         if (script.src) {
           results.scripts_found.push(script.src);
           
@@ -189,7 +206,7 @@ async function checkScripts(url) {
             if (ga4Match) results.ga4 = ga4Match[1];
           }
           
-          // SPRAWDŹ INNE SKRYPTY
+          // SPRAWDŹ INNE SKRYPTY - PODSTAWOWE
           // Microsoft Clarity
           if (script.src.includes('clarity.ms')) {
             results.otherScripts.clarity = true;
@@ -223,6 +240,53 @@ async function checkScripts(url) {
           // FullStory
           if (script.src.includes('fullstory.com')) {
             results.otherScripts.fullstory = true;
+          }
+          
+          // NOWE SKRYPTY
+          // TikTok
+          if (script.src.includes('analytics.tiktok.com')) {
+            results.otherScripts.tiktok = true;
+          }
+          
+          // LinkedIn
+          if (script.src.includes('snap.licdn.com')) {
+            results.otherScripts.linkedin = true;
+          }
+          
+          // Snitcher
+          if (script.src.includes('snitcher.com')) {
+            results.otherScripts.snitcher = true;
+            results.metrics.marketingTools.push('Snitcher');
+          }
+          
+          // Leadfeeder
+          if (script.src.includes('lfeeder.com')) {
+            results.otherScripts.leadfeeder = true;
+            results.metrics.marketingTools.push('Leadfeeder');
+          }
+          
+          // GetResponse
+          if (script.src.includes('gr-cdn.com') || script.src.includes('gr-wcon.com')) {
+            results.otherScripts.getresponse = true;
+            results.metrics.marketingTools.push('GetResponse');
+          }
+          
+          // YouTube
+          if (script.src.includes('youtube.com/iframe_api') || script.src.includes('youtube.com/s/player')) {
+            results.otherScripts.youtube = true;
+            results.metrics.videoAPIs.push('YouTube');
+          }
+          
+          // Vimeo
+          if (script.src.includes('player.vimeo.com')) {
+            results.otherScripts.vimeo = true;
+            results.metrics.videoAPIs.push('Vimeo');
+          }
+          
+          // FastCall
+          if (script.src.includes('fastcall')) {
+            results.otherScripts.fastcall = true;
+            results.metrics.marketingTools.push('FastCall');
           }
         }
         
@@ -310,6 +374,11 @@ async function checkScripts(url) {
       // Usuń duplikaty kodów zgód
       results.consentMode.consentCodes = [...new Set(results.consentMode.consentCodes)];
       
+      // Sprawdź wydajność
+      if (results.metrics.totalScripts > 40) {
+        results.metrics.performanceWarning = true;
+      }
+      
       // SPRAWDŹ BŁĘDY CONSENT MODE
       if (results.gtm || results.ga4) {
         // Jeśli są skrypty Google ale brak consent mode
@@ -335,6 +404,7 @@ async function checkScripts(url) {
     console.log(`📊 Znaleziono: GTM=${scripts.gtm}, GA4=${scripts.ga4}, FB=${scripts.fbPixel}`);
     console.log(`🔐 Consent Mode: ${scripts.consentMode.implemented ? 'TAK' : 'NIE'}`);
     console.log(`🏷️ Kody zgód: ${scripts.consentMode.consentCodes.join(', ') || 'BRAK'}`);
+    console.log(`📈 Liczba skryptów: ${scripts.metrics.totalScripts}`);
     
     await browser.close();
     
