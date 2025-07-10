@@ -110,10 +110,7 @@ async function checkScripts(url) {
     try {
       console.log('🍪 Sprawdzam bannery cookies...');
       
-      // Najpierw poczekaj chwilę na załadowanie bannerów
-      await page.waitForTimeout(2000);
-      
-      // Sprawdź różne typy bannerów przez API
+      // Sprawdź różne typy bannerów
       const cookieBannerHandled = await page.evaluate(() => {
         // Cookiebot
         if (window.Cookiebot) {
@@ -139,206 +136,62 @@ async function checkScripts(url) {
           return 'Klaro';
         }
         
-        // CookieConsent (osano)
-        if (window.cookieconsent) {
-          console.log('Znaleziono CookieConsent');
-          window.cookieconsent.acceptAll();
-          return 'CookieConsent';
-        }
-        
         return null;
       });
       
       if (cookieBannerHandled) {
-        console.log(`✅ Zaakceptowano cookies przez API: ${cookieBannerHandled}`);
-        await page.waitForTimeout(3000);
-      } else {
-        // Jeśli nie udało się przez API, szukaj przycisków
-        console.log('🔍 Szukam przycisków do kliknięcia...');
+        console.log(`✅ Zaakceptowano cookies przez: ${cookieBannerHandled}`);
+      }
+      
+      // ROZSZERZONA LISTA PRZYCISKÓW
+      const acceptButtons = [
+        // Polskie wersje
+        'button:has-text("Zezwól na wszystkie")',
+        'button:has-text("Zaakceptuj wszystkie")', 
+        'button:has-text("Akceptuję")',
+        'button:has-text("Zgadzam się")',
+        'button:has-text("Zatwierdź")',
+        'button:has-text("OK")',
+        'button:has-text("Wyrażam zgodę")',
         
-        // ROZSZERZONA LISTA SELEKTORÓW
-        const acceptSelectors = [
-          // === POLSKIE WERSJE - NAJBARDZIEJ PRAWDOPODOBNE ===
-          // Teksty w przyciskach
-          'button:has-text("Zaakceptuj wszystkie")',
-          'button:has-text("Akceptuj wszystkie")',
-          'button:has-text("Akceptuję wszystkie")',
-          'button:has-text("Zezwól na wszystkie")',
-          'button:has-text("Zgadzam się")',
-          'button:has-text("Wyrażam zgodę")',
-          'button:has-text("Akceptuję")',
-          'button:has-text("Akceptuj")',
-          'button:has-text("Zgoda")',
-          'button:has-text("OK")',
-          'button:has-text("Rozumiem")',
-          'button:has-text("Przejdź do strony")',
-          'button:has-text("Kontynuuj")',
-          
-          // Teksty w linkach/divach które mogą być przyciskami
-          'a:has-text("Zaakceptuj wszystkie")',
-          'a:has-text("Akceptuj wszystkie")',
-          'a:has-text("Zgadzam się")',
-          'div[role="button"]:has-text("Zaakceptuj")',
-          'div[role="button"]:has-text("Zgadzam się")',
-          'span:has-text("Zaakceptuj wszystkie")',
-          
-          // === ANGIELSKIE WERSJE ===
-          'button:has-text("Accept all")',
-          'button:has-text("Accept All")',
-          'button:has-text("Allow all")',
-          'button:has-text("Allow All")',
-          'button:has-text("Accept")',
-          'button:has-text("I agree")',
-          'button:has-text("I Agree")',
-          'button:has-text("Agree")',
-          'button:has-text("Continue")',
-          'button:has-text("Got it")',
-          
-          // === SELEKTORY PO ID/KLASACH ===
-          // Cookiebot
-          '#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll',
-          '#CybotCookiebotDialogBodyButtonAccept',
-          '.CybotCookiebotDialogBodyButton[id*="AllowAll"]',
-          
-          // OneTrust
-          '#onetrust-accept-btn-handler',
-          '.onetrust-accept-btn-handler',
-          '#accept-recommended-btn-handler',
-          '.ot-pc-refuse-all-handler',
-          
-          // Ogólne klasy
-          '.cookie-accept',
-          '.accept-cookies',
-          '.accept-all-cookies',
-          '.btn-accept-cookies',
-          '.cookie-consent-accept',
-          '.gdpr-accept',
-          '.privacy-accept',
-          '.consent-accept',
-          '.allow-all-cookies',
-          '.cookie-allow',
-          '.cookie-agree',
-          '.cookiebar-accept',
-          '.cookiebanner-accept',
-          '.cc-accept',
-          '.cc-allow',
-          '.cc-dismiss',
-          
-          // ID
-          'button[id*="accept"]',
-          'button[id*="akceptuj"]',
-          'button[id*="zgoda"]',
-          'button[id*="allow"]',
-          'button[id*="agree"]',
-          'button[id*="consent"]',
-          'a[id*="accept"]',
-          'a[id*="akceptuj"]',
-          
-          // Atrybuty
-          'button[class*="accept"]',
-          'button[class*="akceptuj"]',
-          'button[class*="allow"]',
-          'button[class*="agree"]',
-          'button[class*="consent"]',
-          'button[data-cookiebanner="accept"]',
-          'button[data-gdpr="accept"]',
-          
-          // Częste przypadki z aria-label
-          'button[aria-label*="Zaakceptuj"]',
-          'button[aria-label*="Accept"]',
-          'button[aria-label*="zgod"]',
-          
-          // Przyciski w modals/popups
-          '.modal button:has-text("Akceptuj")',
-          '.popup button:has-text("Akceptuj")',
-          '.cookie-modal button:has-text("Akceptuj")',
-          '.cookie-popup button:has-text("Akceptuj")',
-          '[role="dialog"] button:has-text("Akceptuj")',
-          
-          // Specyficzne dla popularnych CMSów
-          '.wp-gdpr-cookie-notice-button',
-          '.gdpr-cookie-compliance-button',
-          '.pum-close[data-do-consent]'
-        ];
+        // Angielskie
+        'button:has-text("Accept all")',
+        'button:has-text("Allow all")',
+        'button:has-text("Accept")',
+        'button:has-text("I agree")',
+        'button:has-text("Agree")',
         
-        let clicked = false;
-        
-        // Najpierw spróbuj bardziej specyficzne selektory
-        for (const selector of acceptSelectors) {
-          try {
-            // Sprawdź czy element istnieje i jest widoczny
-            const element = await page.$(selector);
-            if (element) {
-              const isVisible = await element.isVisible();
-              if (isVisible) {
-                // Przewiń do elementu przed kliknięciem
-                await element.scrollIntoViewIfNeeded();
-                await page.waitForTimeout(500);
-                
-                // Kliknij
-                await element.click();
-                console.log(`✅ Kliknięto przycisk: ${selector}`);
-                clicked = true;
-                
-                // Poczekaj na zniknięcie bannera
-                await page.waitForTimeout(2000);
-                
-                // Sprawdź czy banner zniknął
-                const bannerGone = await page.evaluate(() => {
-                  const possibleBanners = document.querySelectorAll(
-                    '.cookie-banner, .cookie-consent, .gdpr-banner, #cookie-banner, [class*="cookie"], [id*="cookie"], [role="dialog"]'
-                  );
-                  
-                  for (const banner of possibleBanners) {
-                    const style = window.getComputedStyle(banner);
-                    if (style.display !== 'none' && style.visibility !== 'hidden' && banner.offsetHeight > 0) {
-                      return false;
-                    }
-                  }
-                  return true;
-                });
-                
-                if (bannerGone) {
-                  console.log('✅ Banner cookies zniknął');
-                  break;
-                } else {
-                  console.log('⚠️ Banner nadal widoczny, próbuję następny przycisk...');
-                  clicked = false;
-                }
-              }
-            }
-          } catch (e) {
-            // Ignoruj błędy i próbuj następny selektor
+        // Po ID i klasach
+        'button[id*="accept"]',
+        'button[id*="allow"]',
+        'button[id*="agree"]',
+        'button[class*="accept"]',
+        'button[class*="allow"]',
+        'button[class*="agree"]',
+        '#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll',
+        '.cookie-accept',
+        '.accept-cookies',
+        '.accept-all-cookies',
+        'a[id*="accept"]',
+        'a[class*="accept"]'
+      ];
+      
+      for (const selector of acceptButtons) {
+        try {
+          const button = await page.$(selector);
+          if (button) {
+            await button.click();
+            console.log(`✅ Kliknięto przycisk: ${selector}`);
+            // DŁUŻSZE CZEKANIE PO ZGODZIE
+            await page.waitForTimeout(7000);
+            break;
           }
-        }
-        
-        if (!clicked) {
-          console.log('⚠️ Nie znaleziono przycisku do zaakceptowania cookies');
-          
-          // Ostatnia próba - szukaj jakiegokolwiek przycisku w bannerze
-          const fallbackClicked = await page.evaluate(() => {
-            const banners = document.querySelectorAll('.cookie-banner, .cookie-consent, [class*="cookie"], [id*="cookie"]');
-            
-            for (const banner of banners) {
-              const buttons = banner.querySelectorAll('button, a[role="button"], div[role="button"]');
-              for (const button of buttons) {
-                const text = button.textContent.toLowerCase();
-                if (text.includes('akceptuj') || text.includes('zgod') || text.includes('accept') || text.includes('allow')) {
-                  button.click();
-                  return true;
-                }
-              }
-            }
-            return false;
-          });
-          
-          if (fallbackClicked) {
-            console.log('✅ Znaleziono i kliknięto przycisk metodą fallback');
-          }
+        } catch (e) {
+          // próbuj dalej
         }
       }
       
-      // Finalne czekanie na załadowanie po zgodzie
+      // Poczekaj na załadowanie po akceptacji
       await page.waitForTimeout(5000);
       
     } catch (cookieError) {
