@@ -147,12 +147,29 @@ async function checkScripts(url) {
       const acceptButtons = [
         // Polskie wersje
         'button:has-text("Zezwól na wszystkie")',
-        'button:has-text("Zaakceptuj wszystkie")', 
+        'button:has-text("Zaakceptuj wszystkie")',
+        'button:has-text("Akceptuj wszystkie")',
         'button:has-text("Akceptuję")',
         'button:has-text("Zgadzam się")',
         'button:has-text("Zatwierdź")',
         'button:has-text("OK")',
         'button:has-text("Wyrażam zgodę")',
+        'button:has-text("Akceptuj")'
+        'button:has-text("Akceptuję wszystkie pliki cookies")',
+        'button:has-text("Zgadzam się na wszystkie")',
+        'button:has-text("Zgadzam się na wszystko")',
+        'button:has-text("Akceptuj wszystko")',
+        'button:has-text("Zaakceptuj wszystkie zgody")',
+        'button:has-text("Zaakceptuj wszystkie pliki cookies")',
+        'button:has-text("Wyrażam zgodę na wszystko")',
+        'button:has-text("Wyrażam zgodę na wszystkie")',
+        'button:has-text("Zatwierdź wszystkie")',
+        'button:has-text("Potwierdź wszystkie")',
+        'button:has-text("Tak, zgadzam się")',
+        'button:has-text("Akceptuję wszystkie zgody")',
+        'button:has-text("Wszystko jasne")',
+        'button:has-text("Przejdź dalej")',
+        'button:has-text("Kontynuuj z pełną zgodą")'
         
         // Angielskie
         'button:has-text("Accept all")',
@@ -160,6 +177,22 @@ async function checkScripts(url) {
         'button:has-text("Accept")',
         'button:has-text("I agree")',
         'button:has-text("Agree")',
+        'button:has-text("Accept all cookies")',
+        'button:has-text("Allow all cookies")',
+        'button:has-text("Accept all")',
+        'button:has-text("Allow all")',
+        'button:has-text("Accept")',
+        'button:has-text("I accept")',
+        'button:has-text("I agree")',
+        'button:has-text("Agree")',
+        'button:has-text("Yes, I agree")',
+        'button:has-text("Got it")',
+        'button:has-text("Confirm all")',
+        'button:has-text("Confirm cookies")',
+        'button:has-text("Continue with all cookies")',
+        'button:has-text("Enable all")',
+        'button:has-text("Accept and continue")',
+        'button:has-text("Continue with recommended cookies")'
         
         // Po ID i klasach
         'button[id*="accept"]',
