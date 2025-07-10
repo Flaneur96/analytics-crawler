@@ -15,7 +15,7 @@ async function checkScripts(url) {
   
   const page = await browser.newPage();
   
-  // Zbieraj eventy GA4 i FB
+  // Zbieraj eventy GA4, FB i Consent Mode
   const capturedEvents = [];
   
   // Nasłuchuj requesty
@@ -29,10 +29,22 @@ async function checkScripts(url) {
       console.log('📡 Request Google:', requestUrl.substring(0, 80) + '...');
     }
     
-    // GA4 events
+    // GA4 events + CONSENT MODE
     if (requestUrl.includes('google-analytics.com/g/collect') || 
         requestUrl.includes('analytics.google.com/g/collect')) {
       const urlParams = new URL(requestUrl).searchParams;
+      
+      // Sprawdź consent code
+      const gcs = urlParams.get('gcs');
+      if (gcs) {
+        capturedEvents.push({
+          type: 'ConsentMode',
+          code: gcs,
+          timestamp: new Date()
+        });
+      }
+      
+      // Normalny event
       capturedEvents.push({
         type: 'GA4',
         eventName: urlParams.get('en') || urlParams.get('event'),
@@ -41,12 +53,38 @@ async function checkScripts(url) {
       });
     }
     
-    // Facebook events
+    // Facebook events z Pixel ID
     if (requestUrl.includes('facebook.com/tr')) {
       const urlParams = new URL(requestUrl).searchParams;
       capturedEvents.push({
         type: 'Facebook',
         eventName: urlParams.get('ev'),
+        pixelId: urlParams.get('id'),
+        url: requestUrl,
+        timestamp: new Date()
+      });
+    }
+    
+    // TikTok events
+    if (requestUrl.includes('analytics.tiktok.com') && requestUrl.includes('/pixel/')) {
+      const urlParams = new URL(requestUrl).searchParams;
+      const pixelMatch = requestUrl.match(/pixel\/([A-Z0-9]+)\//);
+      capturedEvents.push({
+        type: 'TikTok',
+        eventName: urlParams.get('event') || 'PageView',
+        pixelId: pixelMatch ? pixelMatch[1] : null,
+        url: requestUrl,
+        timestamp: new Date()
+      });
+    }
+    
+    // Pinterest events
+    if (requestUrl.includes('ct.pinterest.com')) {
+      const urlParams = new URL(requestUrl).searchParams;
+      capturedEvents.push({
+        type: 'Pinterest',
+        eventName: urlParams.get('event') || 'PageVisit',
+        pixelId: urlParams.get('tid'),
         url: requestUrl,
         timestamp: new Date()
       });
@@ -58,6 +96,14 @@ async function checkScripts(url) {
     await page.goto(url, { 
       waitUntil: 'networkidle',
       timeout: 30000 
+    });
+    
+    // SPRAWDŹ SKRYPTY PRZED ZGODĄ
+    const scriptsBeforeConsent = await page.evaluate(() => {
+      return {
+        ga4: document.querySelector('script[src*="gtag/js"]') ? true : false,
+        gtm: document.querySelector('script[src*="googletagmanager.com/gtm.js"]') ? true : false
+      };
     });
     
     // OBSŁUGA COOKIEBOT I INNYCH BANNERÓW
@@ -97,15 +143,37 @@ async function checkScripts(url) {
         console.log(`✅ Zaakceptowano cookies przez: ${cookieBannerHandled}`);
       }
       
-      // Spróbuj też kliknąć typowe przyciski
+      // ROZSZERZONA LISTA PRZYCISKÓW
       const acceptButtons = [
-        'button#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll',
-        'button[id*="accept-all"]',
-        'button[class*="accept-all"]',
-        'button:has-text("Zaakceptuj wszystkie")',
+        // Polskie wersje
         'button:has-text("Zezwól na wszystkie")',
+        'button:has-text("Zaakceptuj wszystkie")', 
+        'button:has-text("Akceptuję")',
+        'button:has-text("Zgadzam się")',
+        'button:has-text("Zatwierdź")',
+        'button:has-text("OK")',
+        'button:has-text("Wyrażam zgodę")',
+        
+        // Angielskie
         'button:has-text("Accept all")',
-        'button:has-text("Akceptuję")'
+        'button:has-text("Allow all")',
+        'button:has-text("Accept")',
+        'button:has-text("I agree")',
+        'button:has-text("Agree")',
+        
+        // Po ID i klasach
+        'button[id*="accept"]',
+        'button[id*="allow"]',
+        'button[id*="agree"]',
+        'button[class*="accept"]',
+        'button[class*="allow"]',
+        'button[class*="agree"]',
+        '#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll',
+        '.cookie-accept',
+        '.accept-cookies',
+        '.accept-all-cookies',
+        'a[id*="accept"]',
+        'a[class*="accept"]'
       ];
       
       for (const selector of acceptButtons) {
@@ -114,10 +182,12 @@ async function checkScripts(url) {
           if (button) {
             await button.click();
             console.log(`✅ Kliknięto przycisk: ${selector}`);
+            // DŁUŻSZE CZEKANIE PO ZGODZIE
+            await page.waitForTimeout(7000);
             break;
           }
         } catch (e) {
-          // Ignoruj błędy klikania
+          // próbuj dalej
         }
       }
       
@@ -131,7 +201,7 @@ async function checkScripts(url) {
     // Dodatkowy czas na załadowanie wszystkiego
     await page.waitForTimeout(3000);
     
-    // Sprawdź skrypty
+    // Sprawdź skrypty PO ZGODZIE
     const scripts = await page.evaluate(() => {
       const results = {
         gtm: null,
@@ -140,6 +210,7 @@ async function checkScripts(url) {
         scripts_found: [],
         dataLayer: false,
         cookieConsent: null,
+        loadedAfterConsent: false,
         consentMode: {
           implemented: false,
           defaultConsent: null,
@@ -160,6 +231,8 @@ async function checkScripts(url) {
           fullstory: false,
           tiktok: false,
           linkedin: false,
+          pinterest: false,
+          twitter: false,
           snitcher: false,
           leadfeeder: false,
           getresponse: false,
@@ -206,7 +279,7 @@ async function checkScripts(url) {
             if (ga4Match) results.ga4 = ga4Match[1];
           }
           
-          // SPRAWDŹ INNE SKRYPTY - PODSTAWOWE
+          // SPRAWDŹ INNE SKRYPTY - WSZYSTKIE
           // Microsoft Clarity
           if (script.src.includes('clarity.ms')) {
             results.otherScripts.clarity = true;
@@ -242,7 +315,6 @@ async function checkScripts(url) {
             results.otherScripts.fullstory = true;
           }
           
-          // NOWE SKRYPTY
           // TikTok
           if (script.src.includes('analytics.tiktok.com')) {
             results.otherScripts.tiktok = true;
@@ -251,6 +323,16 @@ async function checkScripts(url) {
           // LinkedIn
           if (script.src.includes('snap.licdn.com')) {
             results.otherScripts.linkedin = true;
+          }
+          
+          // Pinterest
+          if (script.src.includes('ct.pinterest.com')) {
+            results.otherScripts.pinterest = true;
+          }
+          
+          // Twitter/X
+          if (script.src.includes('static.ads-twitter.com')) {
+            results.otherScripts.twitter = true;
           }
           
           // Snitcher
@@ -399,6 +481,16 @@ async function checkScripts(url) {
       
       return results;
     });
+    
+    // SPRAWDŹ CZY SKRYPTY ZAŁADOWAŁY SIĘ PO ZGODZIE
+    if (!scriptsBeforeConsent.ga4 && scripts.ga4) {
+      scripts.loadedAfterConsent = true;
+      console.log('⚠️ GA4 załadował się dopiero po akceptacji cookies!');
+    }
+    if (!scriptsBeforeConsent.gtm && scripts.gtm) {
+      scripts.loadedAfterConsent = true;
+      console.log('⚠️ GTM załadował się dopiero po akceptacji cookies!');
+    }
     
     console.log('✅ Sprawdzanie zakończone');
     console.log(`📊 Znaleziono: GTM=${scripts.gtm}, GA4=${scripts.ga4}, FB=${scripts.fbPixel}`);
