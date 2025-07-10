@@ -15,7 +15,7 @@ async function checkScripts(url) {
   
   const page = await browser.newPage();
   
-  // Zbieraj eventy GA4, FB i Consent Mode
+  // Zbieraj eventy GA4, FB, TikTok i Consent Mode
   const capturedEvents = [];
   
   // Nasłuchuj requesty
@@ -65,14 +65,28 @@ async function checkScripts(url) {
       });
     }
     
-    // TikTok events
-    if (requestUrl.includes('analytics.tiktok.com') && requestUrl.includes('/pixel/')) {
+    // TikTok events - POPRAWIONE
+    if (requestUrl.includes('analytics.tiktok.com')) {
       const urlParams = new URL(requestUrl).searchParams;
-      const pixelMatch = requestUrl.match(/pixel\/([A-Z0-9]+)\//);
+      let pixelId = null;
+      
+      // Różne sposoby wykrywania TikTok Pixel ID
+      // 1. Z parametru sdkid
+      pixelId = urlParams.get('sdkid');
+      
+      // 2. Z URL path jeśli nie ma sdkid
+      if (!pixelId) {
+        const pixelMatch = requestUrl.match(/pixel\/([A-Z0-9]+)\//);
+        if (pixelMatch) pixelId = pixelMatch[1];
+      }
+      
+      // 3. Z parametru pixelCode
+      if (!pixelId) pixelId = urlParams.get('pixelCode');
+      
       capturedEvents.push({
         type: 'TikTok',
         eventName: urlParams.get('event') || 'PageView',
-        pixelId: pixelMatch ? pixelMatch[1] : null,
+        pixelId: pixelId,
         url: requestUrl,
         timestamp: new Date()
       });
@@ -106,11 +120,31 @@ async function checkScripts(url) {
       };
     });
     
-    // OBSŁUGA COOKIEBOT I INNYCH BANNERÓW
+    console.log('📊 Skrypty przed zgodą:', scriptsBeforeConsent);
+    
+    // ROZSZERZONA OBSŁUGA COOKIES
     try {
       console.log('🍪 Sprawdzam bannery cookies...');
       
-      // Sprawdź różne typy bannerów
+      // Poczekaj aż banner się pojawi
+      await page.waitForTimeout(2000);
+      
+      // NOWE: Sprawdź czy jest iframe z cookies (np. Onetrust)
+      const cookieFrames = page.frames();
+      for (const frame of cookieFrames) {
+        try {
+          const acceptInFrame = await frame.$('button[id*="accept"], button[class*="accept"]');
+          if (acceptInFrame) {
+            await acceptInFrame.click();
+            console.log('✅ Kliknięto przycisk w iframe');
+            await page.waitForTimeout(5000);
+          }
+        } catch (e) {
+          // ignoruj błędy frame
+        }
+      }
+      
+      // Sprawdź różne typy bannerów przez API
       const cookieBannerHandled = await page.evaluate(() => {
         // Cookiebot
         if (window.Cookiebot) {
@@ -141,61 +175,70 @@ async function checkScripts(url) {
       
       if (cookieBannerHandled) {
         console.log(`✅ Zaakceptowano cookies przez: ${cookieBannerHandled}`);
+        await page.waitForTimeout(5000);
       }
       
-      // ROZSZERZONA LISTA PRZYCISKÓW
+      // ULEPSZONA LISTA SELEKTORÓW
       const acceptButtons = [
+        // Najpopularniejsze CMP
+        '#onetrust-accept-btn-handler',
+        '#accept-recommended-btn-handler',
+        '.onetrust-close-btn-handler',
+        '#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll',
+        '.cookiebot-dialog-accept-all',
+        '#CookieBoxSaveButton',
+        '.gdpr-popup-accept',
+        '.cc-btn.cc-allow',
+        '.cc-btn.cc-dismiss',
+        '[data-cookiebanner="accept_button"]',
+        '[data-cookie-consent="accept"]',
+        
         // Polskie wersje
-        'button:has-text("Zezwól na wszystkie")',
-        'button:has-text("Zaakceptuj wszystkie")',
         'button:has-text("Akceptuj wszystkie")',
+        'button:has-text("Zaakceptuj wszystkie")', 
         'button:has-text("Akceptuję")',
-        'button:has-text("Akceptuj")',
-        'button:has-text("Akceptuj wszystko")',
-        'button:has-text("Akceptuję wszystkie zgody")',
-        'button:has-text("Akceptuję wszystkie")',
-        'button:has-text("Wszystko jasne")',
         'button:has-text("Zgadzam się")',
-        'button:has-text("Zgadzam się na wszystkie")',
-        'button:has-text("Zgadzam się na wszystko")',
-        'button:has-text("Zaakceptuj wszystkie zgody")',
-        'button:has-text("Zatwierdź")',
-        'button:has-text("Zatwierdź wszystkie")',
-        'button:has-text("Potwierdź wszystkie")',
-        'button:has-text("OK")',
-        'button:has-text("Kontynuuj z pełną zgodą")',
-        'button:has-text("Akceptuję wszystkie pliki cookies")',
         'button:has-text("Wyrażam zgodę")',
+        'button:has-text("Zezwól na wszystkie")',
+        'button:has-text("Przejdź do serwisu")',
         
         // Angielskie
         'button:has-text("Accept all")',
+        'button:has-text("Accept All")',
         'button:has-text("Allow all")',
-        'button:has-text("Accept")',
+        'button:has-text("Allow All")',
         'button:has-text("I agree")',
-        'button:has-text("Agree")',
+        'button:has-text("Continue")',
         
-        // Po ID i klasach
+        // Generyczne
         'button[id*="accept"]',
         'button[id*="allow"]',
         'button[id*="agree"]',
         'button[class*="accept"]',
         'button[class*="allow"]',
         'button[class*="agree"]',
-        '#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll',
-        '.cookie-accept',
-        '.accept-cookies',
-        '.accept-all-cookies',
         'a[id*="accept"]',
-        'a[class*="accept"]'
+        'a[class*="accept"]',
+        '.btn-accept',
+        '.accept-btn',
+        '.cookie-accept',
+        '.accept-cookies'
       ];
       
+      // Próbuj każdy selektor
+      let clicked = false;
       for (const selector of acceptButtons) {
         try {
-          const button = await page.$(selector);
+          // Sprawdź czy element jest widoczny
+          const button = await page.waitForSelector(selector, { 
+            timeout: 1000,
+            state: 'visible' 
+          });
+          
           if (button) {
             await button.click();
             console.log(`✅ Kliknięto przycisk: ${selector}`);
-            // DŁUŻSZE CZEKANIE PO ZGODZIE
+            clicked = true;
             await page.waitForTimeout(7000);
             break;
           }
@@ -204,8 +247,37 @@ async function checkScripts(url) {
         }
       }
       
-      // Poczekaj na załadowanie po akceptacji
-      await page.waitForTimeout(5000);
+      // NOWE: Jeśli nie kliknięto, spróbuj force click
+      if (!clicked) {
+        try {
+          const forcedClick = await page.evaluate(() => {
+            // Znajdź wszystkie przyciski z tekstem accept/allow
+            const buttons = Array.from(document.querySelectorAll('button, a'));
+            const acceptButton = buttons.find(btn => {
+              const text = btn.textContent.toLowerCase();
+              return text.includes('accept') || 
+                     text.includes('akceptuj') || 
+                     text.includes('zgadzam') ||
+                     text.includes('allow') ||
+                     text.includes('agree') ||
+                     text.includes('zezwól');
+            });
+            
+            if (acceptButton) {
+              acceptButton.click();
+              return true;
+            }
+            return false;
+          });
+          
+          if (forcedClick) {
+            console.log('✅ Wymuszono kliknięcie przycisku zgody');
+            await page.waitForTimeout(7000);
+          }
+        } catch (e) {
+          console.log('⚠️ Nie znaleziono przycisku zgody');
+        }
+      }
       
     } catch (cookieError) {
       console.log('⚠️ Problem z obsługą cookies:', cookieError.message);
@@ -510,6 +582,11 @@ async function checkScripts(url) {
     console.log(`🔐 Consent Mode: ${scripts.consentMode.implemented ? 'TAK' : 'NIE'}`);
     console.log(`🏷️ Kody zgód: ${scripts.consentMode.consentCodes.join(', ') || 'BRAK'}`);
     console.log(`📈 Liczba skryptów: ${scripts.metrics.totalScripts}`);
+    
+    // DEBUG: Pokaż zebrane eventy
+    const tiktokEvents = capturedEvents.filter(e => e.type === 'TikTok');
+    console.log(`🎯 TikTok events:`, tiktokEvents.length);
+    tiktokEvents.forEach(e => console.log(`  - ${e.eventName} (ID: ${e.pixelId})`));
     
     await browser.close();
     
