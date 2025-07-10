@@ -123,6 +123,9 @@ async function checkScripts(url) {
     console.log('📊 Skrypty przed zgodą:', scriptsBeforeConsent);
     
     // ROZSZERZONA OBSŁUGA COOKIES
+    let cookieClicked = false;
+    let cookieBannerHandled = false;
+    
     try {
       console.log('🍪 Sprawdzam bannery cookies...');
       
@@ -137,6 +140,7 @@ async function checkScripts(url) {
           if (acceptInFrame) {
             await acceptInFrame.click();
             console.log('✅ Kliknięto przycisk w iframe');
+            cookieClicked = true;
             await page.waitForTimeout(5000);
           }
         } catch (e) {
@@ -145,7 +149,7 @@ async function checkScripts(url) {
       }
       
       // Sprawdź różne typy bannerów przez API
-      const cookieBannerHandled = await page.evaluate(() => {
+      const bannerResult = await page.evaluate(() => {
         // Cookiebot
         if (window.Cookiebot) {
           console.log('Znaleziono Cookiebot');
@@ -173,8 +177,9 @@ async function checkScripts(url) {
         return null;
       });
       
-      if (cookieBannerHandled) {
-        console.log(`✅ Zaakceptowano cookies przez: ${cookieBannerHandled}`);
+      if (bannerResult) {
+        console.log(`✅ Zaakceptowano cookies przez: ${bannerResult}`);
+        cookieBannerHandled = true;
         await page.waitForTimeout(5000);
       }
       
@@ -226,29 +231,30 @@ async function checkScripts(url) {
       ];
       
       // Próbuj każdy selektor
-      let clicked = false;
-      for (const selector of acceptButtons) {
-        try {
-          // Sprawdź czy element jest widoczny
-          const button = await page.waitForSelector(selector, { 
-            timeout: 1000,
-            state: 'visible' 
-          });
-          
-          if (button) {
-            await button.click();
-            console.log(`✅ Kliknięto przycisk: ${selector}`);
-            clicked = true;
-            await page.waitForTimeout(7000);
-            break;
+      if (!cookieClicked) {
+        for (const selector of acceptButtons) {
+          try {
+            // Sprawdź czy element jest widoczny
+            const button = await page.waitForSelector(selector, { 
+              timeout: 1000,
+              state: 'visible' 
+            });
+            
+            if (button) {
+              await button.click();
+              console.log(`✅ Kliknięto przycisk: ${selector}`);
+              cookieClicked = true;
+              await page.waitForTimeout(5000);
+              break;
+            }
+          } catch (e) {
+            // próbuj dalej
           }
-        } catch (e) {
-          // próbuj dalej
         }
       }
       
       // NOWE: Jeśli nie kliknięto, spróbuj force click
-      if (!clicked) {
+      if (!cookieClicked) {
         try {
           const forcedClick = await page.evaluate(() => {
             // Znajdź wszystkie przyciski z tekstem accept/allow
@@ -272,7 +278,8 @@ async function checkScripts(url) {
           
           if (forcedClick) {
             console.log('✅ Wymuszono kliknięcie przycisku zgody');
-            await page.waitForTimeout(7000);
+            cookieClicked = true;
+            await page.waitForTimeout(5000);
           }
         } catch (e) {
           console.log('⚠️ Nie znaleziono przycisku zgody');
@@ -283,289 +290,360 @@ async function checkScripts(url) {
       console.log('⚠️ Problem z obsługą cookies:', cookieError.message);
     }
     
-    // Dodatkowy czas na załadowanie wszystkiego
-    await page.waitForTimeout(3000);
-    
-    // Sprawdź skrypty PO ZGODZIE
-    const scripts = await page.evaluate(() => {
-      const results = {
-        gtm: null,
-        ga4: null,
-        fbPixel: false,
-        scripts_found: [],
-        dataLayer: false,
-        cookieConsent: null,
-        loadedAfterConsent: false,
-        consentMode: {
-          implemented: false,
-          defaultConsent: null,
-          updateConsent: null,
-          consentCodes: [],
-          errors: [],
-          hasConsentDefault: false,
-          hasConsentUpdate: false,
-          waitForUpdate: null
-        },
-        otherScripts: {
-          clarity: false,
-          hotjar: false,
-          intercom: false,
-          cookiebot: false,
-          onetrust: false,
-          crazyegg: false,
-          fullstory: false,
-          tiktok: false,
-          linkedin: false,
-          pinterest: false,
-          twitter: false,
-          snitcher: false,
-          leadfeeder: false,
-          getresponse: false,
-          youtube: false,
-          vimeo: false,
-          fastcall: false
-        },
-        metrics: {
-          totalScripts: 0,
-          marketingTools: [],
-          videoAPIs: [],
-          performanceWarning: false
-        },
-        debug: {}
-      };
+    // Jeśli kliknęliśmy zgodę, poczekaj na załadowanie wszystkiego
+    if (cookieClicked || cookieBannerHandled) {
+      console.log('⏳ Czekam aż wszystkie skrypty się załadują po zgodzie...');
       
-      // Info o zgodach
-      if (window.Cookiebot) {
-        results.cookieConsent = 'Cookiebot';
-        results.debug.cookiebotConsent = window.Cookiebot.consent;
-      } else if (window.OneTrust) {
-        results.cookieConsent = 'OneTrust';
-      } else if (window.klaro) {
-        results.cookieConsent = 'Klaro';
+      try {
+        // Czekaj max 10 sekund aż nie będzie żadnych requestów
+        await page.waitForLoadState('networkidle', { timeout: 10000 });
+      } catch (e) {
+        console.log('⚠️ Timeout czekania na network idle');
       }
       
-      // Znajdź wszystkie skrypty
-      const allScripts = document.querySelectorAll('script');
-      results.metrics.totalScripts = allScripts.length;
-      
-      allScripts.forEach(script => {
-        if (script.src) {
-          results.scripts_found.push(script.src);
-          
-          // GTM
-          if (script.src.includes('googletagmanager.com')) {
-            const gtmMatch = script.src.match(/GTM-[A-Z0-9]+/);
-            if (gtmMatch) results.gtm = gtmMatch[0];
-          }
-          
-          // GA4
-          if (script.src.includes('gtag/js')) {
-            const ga4Match = script.src.match(/[?&]id=(G-[A-Z0-9]+)/);
-            if (ga4Match) results.ga4 = ga4Match[1];
-          }
-          
-          // SPRAWDŹ INNE SKRYPTY - WSZYSTKIE
-          // Microsoft Clarity
-          if (script.src.includes('clarity.ms')) {
-            results.otherScripts.clarity = true;
-          }
-          
-          // Hotjar
-          if (script.src.includes('hotjar.com')) {
-            results.otherScripts.hotjar = true;
-          }
-          
-          // Intercom
-          if (script.src.includes('intercom.io')) {
-            results.otherScripts.intercom = true;
-          }
-          
-          // Cookiebot
-          if (script.src.includes('cookiebot.com')) {
-            results.otherScripts.cookiebot = true;
-          }
-          
-          // OneTrust
-          if (script.src.includes('onetrust.com')) {
-            results.otherScripts.onetrust = true;
-          }
-          
-          // CrazyEgg
-          if (script.src.includes('crazyegg.com')) {
-            results.otherScripts.crazyegg = true;
-          }
-          
-          // FullStory
-          if (script.src.includes('fullstory.com')) {
-            results.otherScripts.fullstory = true;
-          }
-          
-          // TikTok
-          if (script.src.includes('analytics.tiktok.com')) {
-            results.otherScripts.tiktok = true;
-          }
-          
-          // LinkedIn
-          if (script.src.includes('snap.licdn.com')) {
-            results.otherScripts.linkedin = true;
-          }
-          
-          // Pinterest
-          if (script.src.includes('ct.pinterest.com')) {
-            results.otherScripts.pinterest = true;
-          }
-          
-          // Twitter/X
-          if (script.src.includes('static.ads-twitter.com')) {
-            results.otherScripts.twitter = true;
-          }
-          
-          // Snitcher
-          if (script.src.includes('snitcher.com')) {
-            results.otherScripts.snitcher = true;
-            results.metrics.marketingTools.push('Snitcher');
-          }
-          
-          // Leadfeeder
-          if (script.src.includes('lfeeder.com')) {
-            results.otherScripts.leadfeeder = true;
-            results.metrics.marketingTools.push('Leadfeeder');
-          }
-          
-          // GetResponse
-          if (script.src.includes('gr-cdn.com') || script.src.includes('gr-wcon.com')) {
-            results.otherScripts.getresponse = true;
-            results.metrics.marketingTools.push('GetResponse');
-          }
-          
-          // YouTube
-          if (script.src.includes('youtube.com/iframe_api') || script.src.includes('youtube.com/s/player')) {
-            results.otherScripts.youtube = true;
-            results.metrics.videoAPIs.push('YouTube');
-          }
-          
-          // Vimeo
-          if (script.src.includes('player.vimeo.com')) {
-            results.otherScripts.vimeo = true;
-            results.metrics.videoAPIs.push('Vimeo');
-          }
-          
-          // FastCall
-          if (script.src.includes('fastcall')) {
-            results.otherScripts.fastcall = true;
-            results.metrics.marketingTools.push('FastCall');
-          }
+      // Dodatkowy czas na pewno
+      await page.waitForTimeout(3000);
+    }
+    
+    // FUNKCJA DO SPRAWDZANIA SKRYPTÓW
+    const evaluateScripts = async () => {
+      return await page.evaluate(() => {
+        const results = {
+          gtm: null,
+          ga4: null,
+          fbPixel: false,
+          scripts_found: [],
+          dataLayer: false,
+          cookieConsent: null,
+          loadedAfterConsent: false,
+          consentMode: {
+            implemented: false,
+            defaultConsent: null,
+            updateConsent: null,
+            consentCodes: [],
+            errors: [],
+            hasConsentDefault: false,
+            hasConsentUpdate: false,
+            waitForUpdate: null
+          },
+          otherScripts: {
+            clarity: false,
+            hotjar: false,
+            intercom: false,
+            cookiebot: false,
+            onetrust: false,
+            crazyegg: false,
+            fullstory: false,
+            tiktok: false,
+            linkedin: false,
+            pinterest: false,
+            twitter: false,
+            snitcher: false,
+            leadfeeder: false,
+            getresponse: false,
+            youtube: false,
+            vimeo: false,
+            fastcall: false
+          },
+          metrics: {
+            totalScripts: 0,
+            marketingTools: [],
+            videoAPIs: [],
+            performanceWarning: false
+          },
+          debug: {}
+        };
+        
+        // Info o zgodach
+        if (window.Cookiebot) {
+          results.cookieConsent = 'Cookiebot';
+          results.debug.cookiebotConsent = window.Cookiebot.consent;
+        } else if (window.OneTrust) {
+          results.cookieConsent = 'OneTrust';
+        } else if (window.klaro) {
+          results.cookieConsent = 'Klaro';
         }
         
-        // Sprawdź inline scripts
-        if (script.innerHTML) {
-          // GTM inline
-          if (script.innerHTML.includes('GTM-')) {
-            const match = script.innerHTML.match(/GTM-[A-Z0-9]+/);
-            if (match && !results.gtm) results.gtm = match[0];
-          }
-          
-          // GA4 inline
-          if (script.innerHTML.includes('gtag(') && script.innerHTML.includes('G-')) {
-            const match = script.innerHTML.match(/['"](G-[A-Z0-9]+)['"]/);
-            if (match && !results.ga4) results.ga4 = match[1];
-          }
-          
-          // DataLayer
-          if (script.innerHTML.includes('dataLayer')) {
-            results.dataLayer = true;
-          }
-          
-          // SPRAWDZANIE CONSENT MODE
-          if (script.innerHTML.includes("gtag('consent', 'default'")) {
-            results.consentMode.hasConsentDefault = true;
-            results.consentMode.implemented = true;
+        // Znajdź wszystkie skrypty
+        const allScripts = document.querySelectorAll('script');
+        results.metrics.totalScripts = allScripts.length;
+        
+        allScripts.forEach(script => {
+          if (script.src) {
+            results.scripts_found.push(script.src);
             
-            // Sprawdź ustawienia default consent
-            const defaultMatch = script.innerHTML.match(/gtag\s*\(\s*['"]consent['"]\s*,\s*['"]default['"]\s*,\s*({[^}]+})\s*\)/);
-            if (defaultMatch) {
-              try {
-                results.consentMode.defaultConsent = defaultMatch[1];
-              } catch (e) {}
+            // GTM
+            if (script.src.includes('googletagmanager.com')) {
+              const gtmMatch = script.src.match(/GTM-[A-Z0-9]+/);
+              if (gtmMatch) results.gtm = gtmMatch[0];
             }
             
-            // Sprawdź wait_for_update
-            if (script.innerHTML.includes('wait_for_update')) {
-              const waitMatch = script.innerHTML.match(/wait_for_update['"]\s*:\s*(\d+)/);
-              if (waitMatch) {
-                results.consentMode.waitForUpdate = parseInt(waitMatch[1]);
+            // GA4
+            if (script.src.includes('gtag/js')) {
+              const ga4Match = script.src.match(/[?&]id=(G-[A-Z0-9]+)/);
+              if (ga4Match) results.ga4 = ga4Match[1];
+            }
+            
+            // SPRAWDŹ INNE SKRYPTY - WSZYSTKIE
+            // Microsoft Clarity
+            if (script.src.includes('clarity.ms')) {
+              results.otherScripts.clarity = true;
+            }
+            
+            // Hotjar
+            if (script.src.includes('hotjar.com')) {
+              results.otherScripts.hotjar = true;
+            }
+            
+            // Intercom
+            if (script.src.includes('intercom.io')) {
+              results.otherScripts.intercom = true;
+            }
+            
+            // Cookiebot
+            if (script.src.includes('cookiebot.com')) {
+              results.otherScripts.cookiebot = true;
+            }
+            
+            // OneTrust
+            if (script.src.includes('onetrust.com')) {
+              results.otherScripts.onetrust = true;
+            }
+            
+            // CrazyEgg
+            if (script.src.includes('crazyegg.com')) {
+              results.otherScripts.crazyegg = true;
+            }
+            
+            // FullStory
+            if (script.src.includes('fullstory.com')) {
+              results.otherScripts.fullstory = true;
+            }
+            
+            // TikTok
+            if (script.src.includes('analytics.tiktok.com')) {
+              results.otherScripts.tiktok = true;
+            }
+            
+            // LinkedIn
+            if (script.src.includes('snap.licdn.com')) {
+              results.otherScripts.linkedin = true;
+            }
+            
+            // Pinterest
+            if (script.src.includes('ct.pinterest.com')) {
+              results.otherScripts.pinterest = true;
+            }
+            
+            // Twitter/X
+            if (script.src.includes('static.ads-twitter.com')) {
+              results.otherScripts.twitter = true;
+            }
+            
+            // Snitcher
+            if (script.src.includes('snitcher.com')) {
+              results.otherScripts.snitcher = true;
+              results.metrics.marketingTools.push('Snitcher');
+            }
+            
+            // Leadfeeder
+            if (script.src.includes('lfeeder.com')) {
+              results.otherScripts.leadfeeder = true;
+              results.metrics.marketingTools.push('Leadfeeder');
+            }
+            
+            // GetResponse
+            if (script.src.includes('gr-cdn.com') || script.src.includes('gr-wcon.com')) {
+              results.otherScripts.getresponse = true;
+              if (!results.metrics.marketingTools.includes('GetResponse')) {
+                results.metrics.marketingTools.push('GetResponse');
               }
             }
-          }
-          
-          if (script.innerHTML.includes("gtag('consent', 'update'")) {
-            results.consentMode.hasConsentUpdate = true;
-          }
-          
-          // Szukaj kodów zgód (G100, G111, etc)
-          const consentCodeMatches = script.innerHTML.match(/[Gg][0-9]{3}/g);
-          if (consentCodeMatches) {
-            results.consentMode.consentCodes.push(...consentCodeMatches);
-          }
-        }
-      });
-      
-      // Facebook Pixel
-      results.fbPixel = typeof window.fbq === 'function';
-      
-      // Sprawdź dataLayer
-      if (typeof window.dataLayer !== 'undefined') {
-        results.dataLayer = true;
-        results.debug.dataLayerLength = window.dataLayer.length;
-        
-        // Sprawdź consent events w dataLayer
-        window.dataLayer.forEach(item => {
-          if (item && typeof item === 'object') {
-            // Sprawdź różne formaty consent
-            if (item[0] === 'consent' || 
-                (item.event && item.event.includes('consent')) ||
-                (item[0] === 'gtag' && item[1] === 'consent')) {
-              results.consentMode.implemented = true;
+            
+            // YouTube
+            if (script.src.includes('youtube.com/iframe_api') || script.src.includes('youtube.com/s/player')) {
+              results.otherScripts.youtube = true;
+              results.metrics.videoAPIs.push('YouTube');
             }
             
-            // Szukaj kodów zgód
-            const itemStr = JSON.stringify(item);
-            const codes = itemStr.match(/[Gg][0-9]{3}/g);
-            if (codes) {
-              results.consentMode.consentCodes.push(...codes);
+            // Vimeo
+            if (script.src.includes('player.vimeo.com')) {
+              results.otherScripts.vimeo = true;
+              results.metrics.videoAPIs.push('Vimeo');
+            }
+            
+            // FastCall
+            if (script.src.includes('fastcall')) {
+              results.otherScripts.fastcall = true;
+              results.metrics.marketingTools.push('FastCall');
+            }
+          }
+          
+          // Sprawdź inline scripts
+          if (script.innerHTML) {
+            // GTM inline
+            if (script.innerHTML.includes('GTM-')) {
+              const match = script.innerHTML.match(/GTM-[A-Z0-9]+/);
+              if (match && !results.gtm) results.gtm = match[0];
+            }
+            
+            // GA4 inline
+            if (script.innerHTML.includes('gtag(') && script.innerHTML.includes('G-')) {
+              const match = script.innerHTML.match(/['"](G-[A-Z0-9]+)['"]/);
+              if (match && !results.ga4) results.ga4 = match[1];
+            }
+            
+            // DataLayer
+            if (script.innerHTML.includes('dataLayer')) {
+              results.dataLayer = true;
+            }
+            
+            // SPRAWDZANIE CONSENT MODE
+            if (script.innerHTML.includes("gtag('consent', 'default'")) {
+              results.consentMode.hasConsentDefault = true;
+              results.consentMode.implemented = true;
+              
+              // Sprawdź ustawienia default consent
+              const defaultMatch = script.innerHTML.match(/gtag\s*\(\s*['"]consent['"]\s*,\s*['"]default['"]\s*,\s*({[^}]+})\s*\)/);
+              if (defaultMatch) {
+                try {
+                  results.consentMode.defaultConsent = defaultMatch[1];
+                } catch (e) {}
+              }
+              
+              // Sprawdź wait_for_update
+              if (script.innerHTML.includes('wait_for_update')) {
+                const waitMatch = script.innerHTML.match(/wait_for_update['"]\s*:\s*(\d+)/);
+                if (waitMatch) {
+                  results.consentMode.waitForUpdate = parseInt(waitMatch[1]);
+                }
+              }
+            }
+            
+            if (script.innerHTML.includes("gtag('consent', 'update'")) {
+              results.consentMode.hasConsentUpdate = true;
+            }
+            
+            // Szukaj kodów zgód (G100, G111, etc)
+            const consentCodeMatches = script.innerHTML.match(/[Gg][0-9]{3}/g);
+            if (consentCodeMatches) {
+              results.consentMode.consentCodes.push(...consentCodeMatches);
             }
           }
         });
-      }
-      
-      // Usuń duplikaty kodów zgód
-      results.consentMode.consentCodes = [...new Set(results.consentMode.consentCodes)];
-      
-      // Sprawdź wydajność
-      if (results.metrics.totalScripts > 40) {
-        results.metrics.performanceWarning = true;
-      }
-      
-      // SPRAWDŹ BŁĘDY CONSENT MODE
-      if (results.gtm || results.ga4) {
-        // Jeśli są skrypty Google ale brak consent mode
-        if (!results.consentMode.hasConsentDefault) {
-          results.consentMode.errors.push('Brak gtag consent default');
+        
+        // Facebook Pixel
+        results.fbPixel = typeof window.fbq === 'function';
+        
+        // Sprawdź dataLayer
+        if (typeof window.dataLayer !== 'undefined') {
+          results.dataLayer = true;
+          results.debug.dataLayerLength = window.dataLayer.length;
+          
+          // Sprawdź consent events w dataLayer
+          window.dataLayer.forEach(item => {
+            if (item && typeof item === 'object') {
+              // Sprawdź różne formaty consent
+              if (item[0] === 'consent' || 
+                  (item.event && item.event.includes('consent')) ||
+                  (item[0] === 'gtag' && item[1] === 'consent')) {
+                results.consentMode.implemented = true;
+              }
+              
+              // Szukaj kodów zgód
+              const itemStr = JSON.stringify(item);
+              const codes = itemStr.match(/[Gg][0-9]{3}/g);
+              if (codes) {
+                results.consentMode.consentCodes.push(...codes);
+              }
+            }
+          });
         }
         
-        // Sprawdź czy jest CMP ale brak consent update
-        if (results.cookieConsent && !results.consentMode.hasConsentUpdate) {
-          results.consentMode.errors.push('Jest CMP ale brak gtag consent update');
+        // Usuń duplikaty kodów zgód
+        results.consentMode.consentCodes = [...new Set(results.consentMode.consentCodes)];
+        
+        // Usuń duplikaty z marketingTools
+        results.metrics.marketingTools = [...new Set(results.metrics.marketingTools)];
+        
+        // Sprawdź wydajność
+        if (results.metrics.totalScripts > 40) {
+          results.metrics.performanceWarning = true;
         }
         
-        // Sprawdź wait_for_update
-        if (results.consentMode.hasConsentDefault && !results.consentMode.waitForUpdate) {
-          results.consentMode.errors.push('Brak wait_for_update w consent default');
+        // SPRAWDŹ BŁĘDY CONSENT MODE
+        if (results.gtm || results.ga4) {
+          // Jeśli są skrypty Google ale brak consent mode
+          if (!results.consentMode.hasConsentDefault) {
+            results.consentMode.errors.push('Brak gtag consent default');
+          }
+          
+          // Sprawdź czy jest CMP ale brak consent update
+          if (results.cookieConsent && !results.consentMode.hasConsentUpdate) {
+            results.consentMode.errors.push('Jest CMP ale brak gtag consent update');
+          }
+          
+          // Sprawdź wait_for_update
+          if (results.consentMode.hasConsentDefault && !results.consentMode.waitForUpdate) {
+            results.consentMode.errors.push('Brak wait_for_update w consent default');
+          }
         }
+        
+        return results;
+      });
+    };
+    
+    // PIERWSZE SPRAWDZENIE SKRYPTÓW
+    let scripts = await evaluateScripts();
+    
+    // DRUGIE SPRAWDZENIE jeśli kliknęliśmy zgodę
+    if (cookieClicked || cookieBannerHandled) {
+      console.log('⏳ Wykonuję drugie sprawdzenie skryptów...');
+      await page.waitForTimeout(5000);
+      
+      const scriptsSecondCheck = await evaluateScripts();
+      
+      // Połącz wyniki - weź wszystko co znalazło pierwsze LUB drugie sprawdzenie
+      if (!scripts.fbPixel && scriptsSecondCheck.fbPixel) {
+        scripts.fbPixel = scriptsSecondCheck.fbPixel;
       }
       
-      return results;
-    });
+      if (!scripts.ga4 && scriptsSecondCheck.ga4) {
+        scripts.ga4 = scriptsSecondCheck.ga4;
+      }
+      
+      if (!scripts.gtm && scriptsSecondCheck.gtm) {
+        scripts.gtm = scriptsSecondCheck.gtm;
+      }
+      
+      // Połącz inne skrypty
+      Object.keys(scriptsSecondCheck.otherScripts).forEach(key => {
+        if (scriptsSecondCheck.otherScripts[key]) {
+          scripts.otherScripts[key] = true;
+        }
+      });
+      
+      // Weź więcej skryptów
+      if (scriptsSecondCheck.metrics.totalScripts > scripts.metrics.totalScripts) {
+        scripts.metrics.totalScripts = scriptsSecondCheck.metrics.totalScripts;
+      }
+      
+      // Połącz marketing tools
+      const allMarketingTools = new Set([
+        ...scripts.metrics.marketingTools,
+        ...scriptsSecondCheck.metrics.marketingTools
+      ]);
+      scripts.metrics.marketingTools = Array.from(allMarketingTools);
+      
+      // Połącz consent codes
+      const allConsentCodes = new Set([
+        ...scripts.consentMode.consentCodes,
+        ...scriptsSecondCheck.consentMode.consentCodes
+      ]);
+      scripts.consentMode.consentCodes = Array.from(allConsentCodes);
+      
+      console.log('✅ Drugie sprawdzenie zakończone');
+    }
     
     // SPRAWDŹ CZY SKRYPTY ZAŁADOWAŁY SIĘ PO ZGODZIE
     if (!scriptsBeforeConsent.ga4 && scripts.ga4) {
