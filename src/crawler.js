@@ -1,3 +1,4 @@
+
 const { chromium } = require('playwright');
 
 async function checkScripts(url) {
@@ -147,11 +148,24 @@ async function checkScripts(url) {
       const acceptButtons = [
         // Polskie wersje
         'button:has-text("Zezwól na wszystkie")',
-        'button:has-text("Zaakceptuj wszystkie")', 
+        'button:has-text("Zaakceptuj wszystkie")',
+        'button:has-text("Akceptuj wszystkie")',
         'button:has-text("Akceptuję")',
+        'button:has-text("Akceptuj")',
+        'button:has-text("Akceptuj wszystko")',
+        'button:has-text("Akceptuję wszystkie zgody")',
+        'button:has-text("Akceptuję wszystkie")',
+        'button:has-text("Wszystko jasne")',
         'button:has-text("Zgadzam się")',
+        'button:has-text("Zgadzam się na wszystkie")',
+        'button:has-text("Zgadzam się na wszystko")',
+        'button:has-text("Zaakceptuj wszystkie zgody")',
         'button:has-text("Zatwierdź")',
+        'button:has-text("Zatwierdź wszystkie")',
+        'button:has-text("Potwierdź wszystkie")',
         'button:has-text("OK")',
+        'button:has-text("Kontynuuj z pełną zgodą")',
+        'button:has-text("Akceptuję wszystkie pliki cookies")',
         'button:has-text("Wyrażam zgodę")',
         
         // Angielskie
