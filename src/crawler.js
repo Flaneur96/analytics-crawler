@@ -169,7 +169,7 @@ async function checkScripts(url) {
         'button:has-text("Akceptuję wszystkie zgody")',
         'button:has-text("Wszystko jasne")',
         'button:has-text("Przejdź dalej")',
-        'button:has-text("Kontynuuj z pełną zgodą")'
+        'button:has-text("Kontynuuj z pełną zgodą")',
         
         // Angielskie
         'button:has-text("Accept all")',
@@ -192,7 +192,7 @@ async function checkScripts(url) {
         'button:has-text("Continue with all cookies")',
         'button:has-text("Enable all")',
         'button:has-text("Accept and continue")',
-        'button:has-text("Continue with recommended cookies")'
+        'button:has-text("Continue with recommended cookies")',
         
         // Po ID i klasach
         'button[id*="accept"]',
@@ -206,7 +206,7 @@ async function checkScripts(url) {
         '.accept-cookies',
         '.accept-all-cookies',
         'a[id*="accept"]',
-        'a[class*="accept"]'
+        'a[class*="accept"]',
       ];
       
       for (const selector of acceptButtons) {
