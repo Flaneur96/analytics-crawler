@@ -131,16 +131,27 @@ async function checkScripts(url) {
       
       // Sprawdź różne typy bannerów
       const cookieBannerHandled = await page.evaluate(() => {
-        // Cookiebot
+        // Cookiebot - POPRAWIONA WERSJA
         if (window.Cookiebot) {
           console.log('Znaleziono Cookiebot');
-          window.Cookiebot.consent.marketing = true;
-          window.Cookiebot.consent.statistics = true;
-          window.Cookiebot.consent.preferences = true;
-          window.Cookiebot.submitConsent();
+          
+          // Metoda 1: Użyj oficjalnego API
+          if (window.Cookiebot.consent) {
+            window.Cookiebot.consent.preferences = true;
+            window.Cookiebot.consent.statistics = true;
+            window.Cookiebot.consent.marketing = true;
+            window.Cookiebot.submitCustomConsent(true, true, true);
+          }
+          
+          // Metoda 2: Symuluj kliknięcie przycisku "Allow all"
+          const allowAllButton = document.getElementById('CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll');
+          if (allowAllButton) {
+            allowAllButton.click();
+          }
+          
           return 'Cookiebot';
         }
-        
+      
         // OneTrust
         if (window.OneTrust) {
           console.log('Znaleziono OneTrust');
