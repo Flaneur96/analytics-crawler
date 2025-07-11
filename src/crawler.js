@@ -122,87 +122,78 @@ async function checkScripts(url) {
     
     console.log('📊 Skrypty przed zgodą:', scriptsBeforeConsent);
     
-    // OBSŁUGA COOKIEBOT I INNYCH BANNERÓW
+    // ULEPSZONA OBSŁUGA COOKIES - NAJPIERW KLIKANIE, POTEM API
+    let cookieClicked = false;
+    
     try {
       console.log('🍪 Sprawdzam bannery cookies...');
       
       // Poczekaj aż banner się pojawi
       await page.waitForTimeout(2000);
       
-      // Sprawdź różne typy bannerów
-      const cookieBannerHandled = await page.evaluate(() => {
-        // Cookiebot - POPRAWIONA WERSJA
-        if (window.Cookiebot) {
-          console.log('Znaleziono Cookiebot');
-          
-          // Metoda 1: Użyj oficjalnego API
-          if (window.Cookiebot.consent) {
-            window.Cookiebot.consent.preferences = true;
-            window.Cookiebot.consent.statistics = true;
-            window.Cookiebot.consent.marketing = true;
-            window.Cookiebot.submitCustomConsent(true, true, true);
-          }
-          
-          // Metoda 2: Symuluj kliknięcie przycisku "Allow all"
-          const allowAllButton = document.getElementById('CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll');
-          if (allowAllButton) {
-            allowAllButton.click();
-          }
-          
-          return 'Cookiebot';
-        }
-      
-        // OneTrust
-        if (window.OneTrust) {
-          console.log('Znaleziono OneTrust');
-          window.OneTrust.AllowAll();
-          return 'OneTrust';
-        }
-        
-        // Klaro
-        if (window.klaro) {
-          console.log('Znaleziono Klaro');
-          window.klaro.getManager().acceptAll();
-          return 'Klaro';
-        }
-        
-        // Borlabs Cookie
-        if (window.BorlabsCookie) {
-          console.log('Znaleziono Borlabs Cookie');
-          window.BorlabsCookie.allowAll();
-          return 'Borlabs';
-        }
-        
-        // Complianz
-        if (window.complianz) {
-          console.log('Znaleziono Complianz');
-          window.complianz.setAllCookies();
-          return 'Complianz';
-        }
-        
-        return null;
-      });
-      
-      if (cookieBannerHandled) {
-        console.log(`✅ Zaakceptowano cookies przez: ${cookieBannerHandled}`);
-      }
-      
-      // ROZSZERZONA LISTA PRZYCISKÓW
+      // ROZSZERZONA LISTA PRZYCISKÓW - WSZYSTKIE MOŻLIWE CMP
       const acceptButtons = [
-        // Najpopularniejsze CMP po ID/klasach
+        // Cookiebot
+        '#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll',
+        '#CybotCookiebotDialogBodyButtonLevelOptinAllowAll',
+        '.CybotCookiebotDialogBodyButton[id*="AllowAll"]',
+        
+        // OneTrust
         '#onetrust-accept-btn-handler',
         '#accept-recommended-btn-handler',
         '.onetrust-close-btn-handler',
-        '#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll',
-        '.cookiebot-dialog-accept-all',
-        '#CookieBoxSaveButton',
-        '.gdpr-popup-accept',
+        '#onetrust-pc-btn-handler',
+        '.ot-pc-refuse-all-handler',
+        '#onetrust-button-group button[class*="save-preference"]',
+        
+        // ConsentManager.net
+        '#cmpbntyestxt',
+        '#cmpwelcomebtnyes',
+        '.cmpboxbtnyes',
+        '[data-cmp-action="accept"]',
+        'button[onclick*="__cmp"]',
+        '.cmp-accept-all',
+        
+        // Klaro
+        '.cn-accept-all',
+        '.klaro .cn-accept',
+        '.cm-btn-success',
+        
+        // Complianz
+        '.cmplz-accept',
+        '.cmplz-btn-accept-all',
+        
+        // Borlabs
+        '#BorlabsCookieBoxSaveButton',
+        '.BorlabsCookie-button-accept-all',
+        
+        // CookieYes
+        '.cky-btn-accept',
+        '.cky-btn-accept-all',
+        
+        // GDPR Cookie Consent
+        '#cookie_action_close_header',
+        '.gdpr-cookie-accept',
+        
+        // WP Cookie Notice
+        '#cn-accept-cookie',
+        '.cn-button',
+        
+        // Termly
+        '.t-cookie-consent-button',
+        '#consent-accept-all',
+        
+        // Uniwersalne selektory
+        '[id*="acceptAll"]',
+        '[id*="accept-all"]',
+        '[class*="accept-all"]',
+        '[class*="acceptAll"]',
+        'button[data-cookiebanner="accept_button"]',
+        'button[data-cookie-consent="accept"]',
         '.cc-btn.cc-allow',
         '.cc-btn.cc-dismiss',
-        '[data-cookiebanner="accept_button"]',
-        '[data-cookie-consent="accept"]',
         
-        // Polskie wersje - WSZYSTKIE MOŻLIWE
+        // Polskie wersje - WSZYSTKIE
         'button:has-text("Zezwól na wszystkie")',
         'button:has-text("Zaakceptuj wszystkie")',
         'button:has-text("Akceptuj wszystkie")',
@@ -238,25 +229,30 @@ async function checkScripts(url) {
         'button:has-text("I agree")',
         'button:has-text("Agree")',
         'button:has-text("Continue")',
+        'button:has-text("Got it")',
+        'button:has-text("I understand")',
         
-        // Po ID i klasach - generyczne
+        // Niemieckie
+        'button:has-text("Alle akzeptieren")',
+        'button:has-text("Alles akzeptieren")',
+        'button:has-text("Zustimmen")',
+        
+        // Generyczne końcowe
         'button[id*="accept"]',
         'button[id*="allow"]',
         'button[id*="agree"]',
         'button[class*="accept"]',
         'button[class*="allow"]',
         'button[class*="agree"]',
-        '.cookie-accept',
-        '.accept-cookies',
-        '.accept-all-cookies',
         'a[id*="accept"]',
         'a[class*="accept"]',
         '.btn-accept',
-        '.accept-btn'
+        '.accept-btn',
+        '.cookie-accept',
+        '.accept-cookies'
       ];
       
-      // Próbuj kliknąć przycisk
-      let clicked = false;
+      // KROK 1: Najpierw próbuj kliknąć przyciski
       for (const selector of acceptButtons) {
         try {
           // Sprawdź czy element istnieje i jest widoczny
@@ -268,7 +264,7 @@ async function checkScripts(url) {
           if (button) {
             await button.click();
             console.log(`✅ Kliknięto przycisk: ${selector}`);
-            clicked = true;
+            cookieClicked = true;
             // DŁUŻSZE CZEKANIE PO ZGODZIE
             await page.waitForTimeout(7000);
             break;
@@ -278,15 +274,39 @@ async function checkScripts(url) {
         }
       }
       
-      // Jeśli nie znaleziono przez selektory, spróbuj force click
-      if (!clicked) {
+      // KROK 2: Jeśli nie znaleziono przez selektory, sprawdź iframe
+      if (!cookieClicked) {
+        const frames = page.frames();
+        for (const frame of frames) {
+          try {
+            for (const selector of acceptButtons.slice(0, 20)) { // Sprawdź pierwsze 20 selektorów w iframe
+              const button = await frame.$(selector);
+              if (button) {
+                await button.click();
+                console.log(`✅ Kliknięto przycisk w iframe: ${selector}`);
+                cookieClicked = true;
+                await page.waitForTimeout(7000);
+                break;
+              }
+            }
+            if (cookieClicked) break;
+          } catch (e) {
+            // ignoruj błędy frame
+          }
+        }
+      }
+      
+      // KROK 3: Force click jako ostatnia deska ratunku
+      if (!cookieClicked) {
         try {
           const forcedClick = await page.evaluate(() => {
-            // Znajdź wszystkie przyciski
-            const buttons = Array.from(document.querySelectorAll('button, a, div[role="button"], span[role="button"]'));
-            const acceptButton = buttons.find(btn => {
-              const text = btn.textContent.toLowerCase();
-              return (
+            // Znajdź wszystkie możliwe elementy
+            const elements = Array.from(document.querySelectorAll('button, a, div[role="button"], span[role="button"], input[type="button"], input[type="submit"]'));
+            
+            // Szukaj po tekście
+            const acceptButton = elements.find(el => {
+              const text = (el.textContent || el.value || '').toLowerCase();
+              const hasAcceptText = (
                 text.includes('accept') || 
                 text.includes('akceptuj') || 
                 text.includes('zgadzam') ||
@@ -297,23 +317,88 @@ async function checkScripts(url) {
                 text.includes('zatwierdź') ||
                 text.includes('potwierdź') ||
                 text.includes('wszystko jasne') ||
-                text.includes('kontynuuj')
-              ) && !text.includes('nie') && !text.includes('odrzuć');
+                text.includes('kontynuuj') ||
+                text.includes('ok') ||
+                text.includes('got it')
+              );
+              
+              const hasRejectText = (
+                text.includes('nie') ||
+                text.includes('no') ||
+                text.includes('reject') ||
+                text.includes('odrzuć') ||
+                text.includes('decline')
+              );
+              
+              return hasAcceptText && !hasRejectText && text.length < 50;
             });
             
             if (acceptButton) {
               acceptButton.click();
               return true;
             }
+            
+            // Jeśli nie znaleziono, szukaj po atrybutach
+            const acceptByAttr = elements.find(el => {
+              const attrs = (el.className + ' ' + el.id + ' ' + (el.getAttribute('data-action') || '')).toLowerCase();
+              return attrs.includes('accept') || attrs.includes('allow') || attrs.includes('agree');
+            });
+            
+            if (acceptByAttr) {
+              acceptByAttr.click();
+              return true;
+            }
+            
             return false;
           });
           
           if (forcedClick) {
             console.log('✅ Wymuszono kliknięcie przycisku zgody');
+            cookieClicked = true;
             await page.waitForTimeout(7000);
           }
         } catch (e) {
           console.log('⚠️ Nie znaleziono przycisku zgody');
+        }
+      }
+      
+      // KROK 4: Jako absolutnie ostatnia opcja - spróbuj JS API (ale tylko jeśli nic nie kliknięto)
+      if (!cookieClicked) {
+        const apiHandled = await page.evaluate(() => {
+          // ConsentManager
+          if (window.__cmp) {
+            window.__cmp('acceptAll');
+            return 'ConsentManager';
+          }
+          
+          // Cookiebot - poprawione
+          if (window.Cookiebot && window.Cookiebot.show === false) {
+            // Banner już był pokazany, akceptuj programowo
+            if (window.Cookiebot.submitCustomConsent) {
+              window.Cookiebot.submitCustomConsent(true, true, true);
+            }
+            return 'Cookiebot-API';
+          }
+          
+          // OneTrust
+          if (window.OneTrust && window.OneTrust.AllowAll) {
+            window.OneTrust.AllowAll();
+            return 'OneTrust';
+          }
+          
+          // Klaro
+          if (window.klaro) {
+            window.klaro.getManager().acceptAll();
+            return 'Klaro';
+          }
+          
+          return null;
+        });
+        
+        if (apiHandled) {
+          console.log(`✅ Zaakceptowano przez API: ${apiHandled}`);
+          cookieClicked = true;
+          await page.waitForTimeout(7000);
         }
       }
       
@@ -387,6 +472,8 @@ async function checkScripts(url) {
         results.cookieConsent = 'Borlabs';
       } else if (window.complianz) {
         results.cookieConsent = 'Complianz';
+      } else if (window.__cmp) {
+        results.cookieConsent = 'ConsentManager';
       }
       
       // Znajdź wszystkie skrypty
@@ -634,6 +721,11 @@ async function checkScripts(url) {
     const tiktokEvents = capturedEvents.filter(e => e.type === 'TikTok');
     console.log(`🎯 TikTok events:`, tiktokEvents.length);
     tiktokEvents.forEach(e => console.log(`  - ${e.eventName} (ID: ${e.pixelId})`));
+    
+    // DEBUG: Pokaż status cookies
+    if (scripts.debug.cookiebotConsent) {
+      console.log('🍪 Cookiebot consent:', scripts.debug.cookiebotConsent);
+    }
     
     await browser.close();
     
