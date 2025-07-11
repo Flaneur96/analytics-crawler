@@ -1,4 +1,3 @@
-
 const { chromium } = require('playwright');
 
 async function checkScripts(url) {
@@ -16,7 +15,7 @@ async function checkScripts(url) {
   
   const page = await browser.newPage();
   
-  // Zbieraj eventy GA4, FB i Consent Mode
+  // Zbieraj eventy GA4, FB, TikTok i Consent Mode
   const capturedEvents = [];
   
   // Nasłuchuj requesty
@@ -66,14 +65,28 @@ async function checkScripts(url) {
       });
     }
     
-    // TikTok events
-    if (requestUrl.includes('analytics.tiktok.com') && requestUrl.includes('/pixel/')) {
+    // TikTok events - POPRAWIONE
+    if (requestUrl.includes('analytics.tiktok.com')) {
       const urlParams = new URL(requestUrl).searchParams;
-      const pixelMatch = requestUrl.match(/pixel\/([A-Z0-9]+)\//);
+      let pixelId = null;
+      
+      // Różne sposoby wykrywania TikTok Pixel ID
+      // 1. Z parametru sdkid
+      pixelId = urlParams.get('sdkid');
+      
+      // 2. Z URL path jeśli nie ma sdkid
+      if (!pixelId) {
+        const pixelMatch = requestUrl.match(/pixel\/([A-Z0-9]+)\//);
+        if (pixelMatch) pixelId = pixelMatch[1];
+      }
+      
+      // 3. Z parametru pixelCode
+      if (!pixelId) pixelId = urlParams.get('pixelCode');
+      
       capturedEvents.push({
         type: 'TikTok',
         eventName: urlParams.get('event') || 'PageView',
-        pixelId: pixelMatch ? pixelMatch[1] : null,
+        pixelId: pixelId,
         url: requestUrl,
         timestamp: new Date()
       });
@@ -107,9 +120,14 @@ async function checkScripts(url) {
       };
     });
     
+    console.log('📊 Skrypty przed zgodą:', scriptsBeforeConsent);
+    
     // OBSŁUGA COOKIEBOT I INNYCH BANNERÓW
     try {
       console.log('🍪 Sprawdzam bannery cookies...');
+      
+      // Poczekaj aż banner się pojawi
+      await page.waitForTimeout(2000);
       
       // Sprawdź różne typy bannerów
       const cookieBannerHandled = await page.evaluate(() => {
@@ -137,6 +155,20 @@ async function checkScripts(url) {
           return 'Klaro';
         }
         
+        // Borlabs Cookie
+        if (window.BorlabsCookie) {
+          console.log('Znaleziono Borlabs Cookie');
+          window.BorlabsCookie.allowAll();
+          return 'Borlabs';
+        }
+        
+        // Complianz
+        if (window.complianz) {
+          console.log('Znaleziono Complianz');
+          window.complianz.setAllCookies();
+          return 'Complianz';
+        }
+        
         return null;
       });
       
@@ -146,7 +178,20 @@ async function checkScripts(url) {
       
       // ROZSZERZONA LISTA PRZYCISKÓW
       const acceptButtons = [
-        // Polskie wersje
+        // Najpopularniejsze CMP po ID/klasach
+        '#onetrust-accept-btn-handler',
+        '#accept-recommended-btn-handler',
+        '.onetrust-close-btn-handler',
+        '#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll',
+        '.cookiebot-dialog-accept-all',
+        '#CookieBoxSaveButton',
+        '.gdpr-popup-accept',
+        '.cc-btn.cc-allow',
+        '.cc-btn.cc-dismiss',
+        '[data-cookiebanner="accept_button"]',
+        '[data-cookie-consent="accept"]',
+        
+        // Polskie wersje - WSZYSTKIE MOŻLIWE
         'button:has-text("Zezwól na wszystkie")',
         'button:has-text("Zaakceptuj wszystkie")',
         'button:has-text("Akceptuj wszystkie")',
@@ -155,53 +200,109 @@ async function checkScripts(url) {
         'button:has-text("Akceptuj wszystko")',
         'button:has-text("Akceptuję wszystkie zgody")',
         'button:has-text("Akceptuję wszystkie")',
-        'button:has-text("Wszystko jasne")',
+        'button:has-text("Akceptuję wszystkie pliki cookies")',
         'button:has-text("Zgadzam się")',
         'button:has-text("Zgadzam się na wszystkie")',
         'button:has-text("Zgadzam się na wszystko")',
         'button:has-text("Zaakceptuj wszystkie zgody")',
+        'button:has-text("Zaakceptuj wszystkie pliki cookies")',
+        'button:has-text("Wyrażam zgodę")',
+        'button:has-text("Wyrażam zgodę na wszystko")',
+        'button:has-text("Wyrażam zgodę na wszystkie")',
         'button:has-text("Zatwierdź")',
         'button:has-text("Zatwierdź wszystkie")',
         'button:has-text("Potwierdź wszystkie")',
-        'button:has-text("OK")',
+        'button:has-text("Tak, zgadzam się")',
+        'button:has-text("Wszystko jasne")',
+        'button:has-text("Przejdź dalej")',
         'button:has-text("Kontynuuj z pełną zgodą")',
-        'button:has-text("Akceptuję wszystkie pliki cookies")',
-        'button:has-text("Wyrażam zgodę")',
+        'button:has-text("OK")',
         
         // Angielskie
         'button:has-text("Accept all")',
+        'button:has-text("Accept All")',
         'button:has-text("Allow all")',
+        'button:has-text("Allow All")',
         'button:has-text("Accept")',
         'button:has-text("I agree")',
         'button:has-text("Agree")',
+        'button:has-text("Continue")',
         
-        // Po ID i klasach
+        // Po ID i klasach - generyczne
         'button[id*="accept"]',
         'button[id*="allow"]',
         'button[id*="agree"]',
         'button[class*="accept"]',
         'button[class*="allow"]',
         'button[class*="agree"]',
-        '#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll',
         '.cookie-accept',
         '.accept-cookies',
         '.accept-all-cookies',
         'a[id*="accept"]',
-        'a[class*="accept"]'
+        'a[class*="accept"]',
+        '.btn-accept',
+        '.accept-btn'
       ];
       
+      // Próbuj kliknąć przycisk
+      let clicked = false;
       for (const selector of acceptButtons) {
         try {
-          const button = await page.$(selector);
+          // Sprawdź czy element istnieje i jest widoczny
+          const button = await page.waitForSelector(selector, { 
+            timeout: 500,
+            state: 'visible' 
+          });
+          
           if (button) {
             await button.click();
             console.log(`✅ Kliknięto przycisk: ${selector}`);
+            clicked = true;
             // DŁUŻSZE CZEKANIE PO ZGODZIE
             await page.waitForTimeout(7000);
             break;
           }
         } catch (e) {
           // próbuj dalej
+        }
+      }
+      
+      // Jeśli nie znaleziono przez selektory, spróbuj force click
+      if (!clicked) {
+        try {
+          const forcedClick = await page.evaluate(() => {
+            // Znajdź wszystkie przyciski
+            const buttons = Array.from(document.querySelectorAll('button, a, div[role="button"], span[role="button"]'));
+            const acceptButton = buttons.find(btn => {
+              const text = btn.textContent.toLowerCase();
+              return (
+                text.includes('accept') || 
+                text.includes('akceptuj') || 
+                text.includes('zgadzam') ||
+                text.includes('allow') ||
+                text.includes('agree') ||
+                text.includes('zezwól') ||
+                text.includes('wyrażam zgodę') ||
+                text.includes('zatwierdź') ||
+                text.includes('potwierdź') ||
+                text.includes('wszystko jasne') ||
+                text.includes('kontynuuj')
+              ) && !text.includes('nie') && !text.includes('odrzuć');
+            });
+            
+            if (acceptButton) {
+              acceptButton.click();
+              return true;
+            }
+            return false;
+          });
+          
+          if (forcedClick) {
+            console.log('✅ Wymuszono kliknięcie przycisku zgody');
+            await page.waitForTimeout(7000);
+          }
+        } catch (e) {
+          console.log('⚠️ Nie znaleziono przycisku zgody');
         }
       }
       
@@ -271,6 +372,10 @@ async function checkScripts(url) {
         results.cookieConsent = 'OneTrust';
       } else if (window.klaro) {
         results.cookieConsent = 'Klaro';
+      } else if (window.BorlabsCookie) {
+        results.cookieConsent = 'Borlabs';
+      } else if (window.complianz) {
+        results.cookieConsent = 'Complianz';
       }
       
       // Znajdź wszystkie skrypty
@@ -364,7 +469,9 @@ async function checkScripts(url) {
           // GetResponse
           if (script.src.includes('gr-cdn.com') || script.src.includes('gr-wcon.com')) {
             results.otherScripts.getresponse = true;
-            results.metrics.marketingTools.push('GetResponse');
+            if (!results.metrics.marketingTools.includes('GetResponse')) {
+              results.metrics.marketingTools.push('GetResponse');
+            }
           }
           
           // YouTube
@@ -511,6 +618,11 @@ async function checkScripts(url) {
     console.log(`🔐 Consent Mode: ${scripts.consentMode.implemented ? 'TAK' : 'NIE'}`);
     console.log(`🏷️ Kody zgód: ${scripts.consentMode.consentCodes.join(', ') || 'BRAK'}`);
     console.log(`📈 Liczba skryptów: ${scripts.metrics.totalScripts}`);
+    
+    // DEBUG: Pokaż zebrane eventy
+    const tiktokEvents = capturedEvents.filter(e => e.type === 'TikTok');
+    console.log(`🎯 TikTok events:`, tiktokEvents.length);
+    tiktokEvents.forEach(e => console.log(`  - ${e.eventName} (ID: ${e.pixelId})`));
     
     await browser.close();
     
